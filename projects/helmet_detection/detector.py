@@ -34,8 +34,8 @@ class HelmetDetector(BaseAIProject):
         # Загрузка меток классов из конфигурации с fallback-значениями
         labels_config = self.config.get("labels", {})
         self.PERSON_LABELS = set(labels_config.get("person", ["Person", "person"]))
-        self.HELMET_LABELS = set(labels_config.get("helmet", ["Hardhat", "With Helmet"]))
-        self.NO_HELMET_LABELS = set(labels_config.get("no_helmet", ["NO-Hardhat", "Without Helmet"]))
+        self.HELMET_LABELS = set(labels_config.get("helmet", ["Hardhat", "With Helmet", "helmet"]))
+        self.NO_HELMET_LABELS = set(labels_config.get("no_helmet", ["NO-Hardhat", "Without Helmet", "head"]))
         self.FACE_SIZE = (128, 128)
 
         # Пороги для сравнения лиц
@@ -109,7 +109,7 @@ class HelmetDetector(BaseAIProject):
             self._check_date()
 
             with self.lock:
-                results = self.model.track(frame, persist=True, conf=0.55, verbose=False)
+                results = self.model.track(frame, persist=True, conf=0.35, verbose=False)
 
             detections, violating_persons = self._parse_results(results[0])
 
@@ -167,7 +167,8 @@ class HelmetDetector(BaseAIProject):
     def _parse_results(self, result):
         """Разбирает результаты YOLO на списки объектов."""
         detections = []
-        helmet_boxes, no_helmet_boxes, person_detections = [], [], []
+        helmet_boxes = []
+        violating_persons = []
 
         if result.boxes is None:
             return [], []
@@ -177,28 +178,15 @@ class HelmetDetector(BaseAIProject):
             conf = float(box.conf[0])
             label = self.model.names[int(box.cls[0])]
             track_id = int(box.id[0]) if box.id is not None else None
-            
+
             detection = Detection(class_name=label, confidence=conf, bbox=(x1, y1, x2, y2), track_id=track_id)
             detections.append(detection)
 
             if label in self.HELMET_LABELS:
                 helmet_boxes.append((x1, y1, x2, y2))
             elif label in self.NO_HELMET_LABELS:
-                no_helmet_boxes.append((x1, y1, x2, y2))
-            elif label in self.PERSON_LABELS:
-                person_detections.append(detection)
+                violating_persons.append(detection)
 
-        violating_persons = []
-        for p_det in person_detections:
-            # Проверяем, есть ли у человека каска
-            head = self._get_head_region(p_det.bbox)
-            has_helmet = any(self._boxes_overlap(head, h_box) for h_box in helmet_boxes)
-            # Проверяем, есть ли явное указание на отсутствие каски
-            explicit_no_helmet = any(self._boxes_overlap(p_det.bbox, nh_box) for nh_box in no_helmet_boxes)
-
-            if explicit_no_helmet or not has_helmet:
-                violating_persons.append(p_det)
-        
         return detections, violating_persons
 
     def _is_new_violation(self, person_detection: Detection, frame: np.ndarray) -> bool:
@@ -225,8 +213,7 @@ class HelmetDetector(BaseAIProject):
 
     def _extract_face(self, frame, box):
         x1, y1, x2, y2 = box
-        head_height = int((y2 - y1) * 0.4)
-        roi = frame[y1 : y1 + head_height, x1:x2]
+        roi = frame[y1:y2, x1:x2]
         gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         faces = self.face_cascade.detectMultiScale(gray_roi, scaleFactor=1.1, minNeighbors=4, minSize=(30, 30))
         if len(faces) == 0: return None
@@ -281,8 +268,7 @@ class HelmetDetector(BaseAIProject):
         bx1, by1, bx2, by2 = box_b
         return not (ax2 < bx1 or bx2 < ax1 or ay2 < by1 or by2 < ay1)
 
-    @staticmethod
-    def _draw_boxes(frame, detections):
+    def _draw_boxes(self, frame, detections):
         for det in detections:
             x1, y1, x2, y2 = det.bbox
             color = (0, 0, 255) if det.class_name in self.NO_HELMET_LABELS else (0, 255, 0)

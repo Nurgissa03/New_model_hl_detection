@@ -62,3 +62,4 @@ venv.bak/
 *.njsproj
 *.sln
 *.sw?
+output_log.txt
