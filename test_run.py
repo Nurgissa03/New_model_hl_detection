@@ -7,12 +7,14 @@ import cv2
 from projects.helmet_detection.detector import HelmetDetector
 
 config = {
-    "model_path": "projects/helmet_detection/models/ppe_best.pt",
+    "model_path": "ppe_best.pt",
     "device": "auto",
+    "conf_threshold": 0.35,
+    "iou_threshold": 0.5,
+    "imgsz": 960,
     "labels": {
         "helmet": ["helmet"],
         "no_helmet": ["head"],
-        "person": ["person"],
     },
 }
 
